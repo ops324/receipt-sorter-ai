@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── 風水五行カラーシステム（仕様書 §2.1） ─────────────────── */
+
+    /* 土（ど）：大地・安定 — 温白 #fffdf5 */
+    --background: 48 100% 97%;
+    --foreground: 24 10% 10%;
+
+    /* カード — 純白 */
+    --card: 0 0% 100%;
+    --card-foreground: 24 10% 10%;
+
+    /* ポップオーバー */
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 10% 10%;
+
+    /* 金（きん）：財運 — 琥珀 #d97706 */
+    --primary: 33 95% 44%;
+    --primary-foreground: 0 0% 100%;
+
+    /* セカンダリ */
+    --secondary: 60 5% 96%;
+    --secondary-foreground: 24 10% 10%;
+
+    /* ミュート */
+    --muted: 60 5% 96%;
+    --muted-foreground: 25 5% 45%;
+
+    /* アクセント（琥珀の薄い面） */
+    --accent: 33 100% 94%;
+    --accent-foreground: 33 95% 30%;
+
+    /* 火（か）：警告・エラー */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* ボーダー・入力欄 */
+    --border: 36 40% 88%;
+    --input: 36 40% 88%;
+    --ring: 33 95% 44%;
+
+    --radius: 0.625rem;
+  }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-feature-settings: "palt";
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+input, textarea, [contenteditable] {
+  user-select: text;
+}
+
+/* スクロールバー */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(36 40% 82%);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(36 40% 68%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}

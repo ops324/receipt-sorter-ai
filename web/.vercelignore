@@ -1,0 +1,8 @@
+# Vercel の Root Directory は web/ に設定する。
+# 念のためルートの Electron 版ビルド成果物・ネイティブ依存が混入しないよう除外。
+../electron
+../out
+../.vite
+../node_modules
+../src
+../assets
