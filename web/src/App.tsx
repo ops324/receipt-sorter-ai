@@ -3,6 +3,7 @@ import { useApp } from './stores/app-store';
 import { supabase } from '@/lib/supabase';
 import { Inbox } from './pages/Inbox';
 import { ReceiptList } from './pages/ReceiptList';
+import { Summary } from './pages/Summary';
 import { Projects } from './pages/Projects';
 import { Rules } from './pages/Rules';
 import { Export } from './pages/Export';
@@ -14,6 +15,7 @@ import logo from './assets/logo.png';
 import {
   Inbox as InboxIcon,
   Receipt,
+  Calculator,
   Clapperboard,
   Zap,
   ArrowUpFromLine,
@@ -22,11 +24,12 @@ import {
   LogOut,
 } from 'lucide-react';
 
-type Page = 'inbox' | 'list' | 'projects' | 'rules' | 'export' | 'settings';
+type Page = 'inbox' | 'list' | 'summary' | 'projects' | 'rules' | 'export' | 'settings';
 
 const NAV_MAIN: { id: Page; label: string; Icon: React.ElementType }[] = [
   { id: 'inbox',    label: 'インボックス',   Icon: InboxIcon },
   { id: 'list',     label: '領収書一覧',     Icon: Receipt },
+  { id: 'summary',  label: '集計',           Icon: Calculator },
   { id: 'projects', label: '案件',           Icon: Clapperboard },
   { id: 'rules',    label: '自動分類ルール', Icon: Zap },
 ];
@@ -107,6 +110,7 @@ export default function App() {
       <main className="flex-1 overflow-auto">
         {page === 'inbox'    && <Inbox onNavigate={setPage} />}
         {page === 'list'     && <ReceiptList />}
+        {page === 'summary'  && <Summary />}
         {page === 'projects' && <Projects />}
         {page === 'rules'    && <Rules />}
         {page === 'export'   && <Export />}
