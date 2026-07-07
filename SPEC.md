@@ -500,7 +500,9 @@ Mac/Win版とは独立した別ビルド。iPad Safari / PCブラウザで使う
 - 全テーブルに `user_id` + RLS(`auth.uid()`)。`projects` は `UNIQUE(user_id, name)`。スキーマは `web/supabase/schema.sql`。
 - **BYOK廃止**: Claude鍵はVercel環境変数。**招待制**（公開サインアップ無効）+ `/api/ocr` で `ALLOWED_USER_IDS` 照合 + 月次OCR上限。
 
-**マイルストーン**: M0認証/足場・M1 1枚OCR・M2 CRUD・M3複数枚/進捗/コスト上限 実装済（M3の孤児ファイル掃除も完了＝取込でアップ後にDB行作成失敗／部分アップ時にアップ済みStorageファイルを掃除。破壊的スイープは原本誤削除リスクのため不採用）。**M4エクスポート(CSV/Excel/PDF/ZIP)未実装**（`exportData`は準備中エラー）。
+**マイルストーン**: M0認証/足場・M1 1枚OCR・M2 CRUD・M3複数枚/進捗/コスト上限 実装済（M3の孤児ファイル掃除も完了＝取込でアップ後にDB行作成失敗／部分アップ時にアップ済みStorageファイルを掃除。破壊的スイープは原本誤削除リスクのため不採用）。**集計ページ実装済**（`src/pages/Summary.tsx`。ナビ「集計」）。**M4ファイル出力(CSV/Excel/PDF/ZIP)は未実装**（`exportData`は準備中エラー）。
+
+**集計（Summary）**: 期間（デフォルト当月・ローカル日付でTZずれ回避）・案件・「確定済みのみ」で絞り込み、勘定科目別／支払方法別に件数・金額合計・税額を集計表示（KPI＋構成比バー付きテーブル）。`failed`/`processing`は金額不定のため対象外、日付未設定は期間集計から除外し件数のみ注記。**計算はすべてクライアント側（ブラウザ内）で完結し、Claude API等の従量課金は発生しない**（既に読込済みの`receipts`ストアを集計するのみ）。クライアントの主要ニーズ「計算の自動化にコストをかけたくない」に構造的に合致。
 
 **提供形態（Model 1）**: オーナーが1組のSupabase＋Anthropicキーを保持し、招待制でクライアントに相乗り提供（OCR代はオーナー負担）。クライアントはログインのみでSupabase/キーに触れない。
 - **Settingsのキー入力UI撤去・完了**: Web版は鍵をサーバー保持のためAPIキーCardを撤去（既定値Cardのみ残す）。Inbox/ReceiptListの`hasApiKey`死に分岐（未設定バナー・トースト・再試行無効化）も除去。`hasApiKey`は常にtrue。
