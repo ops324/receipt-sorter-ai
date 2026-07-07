@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { UploadCloud, Loader2, AlertCircle, CheckCircle2, Clock, ChevronRight, TrendingUp } from 'lucide-react';
 
 interface InboxProps {
-  onNavigate: (p: 'inbox' | 'list' | 'projects' | 'rules' | 'export' | 'settings') => void;
+  onNavigate: (p: 'inbox' | 'list' | 'summary' | 'projects' | 'rules' | 'export' | 'settings') => void;
 }
 
 /** この枚数以上を一度に取り込む場合は、コスト確認ダイアログを挟む。 */
@@ -69,6 +69,9 @@ export function Inbox({ onNavigate }: InboxProps) {
       const ng = results.length - ok;
       pushToast({ kind: ng > 0 ? 'error' : 'success', message: ng > 0 ? `${ok}件取込、${ng}件失敗` : `${ok}件取込完了` });
       refreshCost();
+    } catch (e) {
+      // importItems 自体が throw する場合（APIキー未設定・未ログイン等）をユーザーに通知
+      pushToast({ kind: 'error', message: (e as Error).message });
     } finally {
       setBusy(false);
       setProgress(null);

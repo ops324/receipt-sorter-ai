@@ -1,9 +1,12 @@
 import { supabase, RECEIPTS_BUCKET } from './supabase';
+import { runOcr, type OcrExtraction } from './ocr';
+import { getApiKey, setApiKeyLocal, hasApiKeyLocal } from './local-key';
 import type {
   AppApi, ImportItem, ImportProgress, ReceiptFilter,
 } from '@shared/ipc';
 import type {
-  AppSettings, CostEstimate, ExportOptions, ImportResult, Project, Receipt, Rule,
+  AccountCategory, AppSettings, CostEstimate, ExportOptions, ImportResult,
+  PaymentMethod, Project, Receipt, Rule,
 } from '@shared/types';
 
 // ───────────────────────────────────────────────────────────
@@ -46,13 +49,6 @@ async function currentUserId(): Promise<string> {
   const uid = data.session?.user.id;
   if (!uid) throw new Error('ログインが必要です');
   return uid;
-}
-
-async function accessToken(): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  const t = data.session?.access_token;
-  if (!t) throw new Error('ログインが必要です');
-  return t;
 }
 
 function nowIso(): string { return new Date().toISOString(); }
@@ -118,8 +114,66 @@ function rowToReceipt(row: Record<string, unknown>): Receipt {
   };
 }
 
+// ── OCR（BYOK・ブラウザ直叩き）補助 ───────────────────────────
+// エラーメッセージ等に鍵が混ざってDBへ保存されるのを防ぐ。
+function redactKey(text: string): string {
+  return (text ?? '')
+    .replace(/sk-ant-[A-Za-z0-9_-]+/g, 'sk-ant-***REDACTED***')
+    .replace(/sk-[A-Za-z0-9_-]{20,}/g, 'sk-***REDACTED***');
+}
+
+function detectImageMime(bytes: Uint8Array): 'image/png' | 'image/jpeg' {
+  return bytes[0] === 0xff && bytes[1] === 0xd8 ? 'image/jpeg' : 'image/png';
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  const chunk = 0x8000; // 大きな配列を spread するとスタックが溢れるため分割する
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...Array.from(bytes.subarray(i, i + chunk)));
+  }
+  return btoa(bin);
+}
+
+// 抽出結果 → status。金額/取引先/日付が揃い信頼度0.7以上なら確定、それ以外は要確認。
+function ocrStatus(ext: OcrExtraction): Receipt['status'] {
+  return ext.amount !== null && ext.vendor !== null && ext.issued_on !== null && ext.confidence >= 0.7
+    ? 'confirmed' : 'pending';
+}
+
+// 店名キーワード一致でルール適用（priority昇順、最初の一致を採用）。
+async function applyRules(ext: OcrExtraction): Promise<{ category: AccountCategory | null; payment: PaymentMethod | null }> {
+  let category: AccountCategory | null = ext.suggested_category ?? null;
+  let payment: PaymentMethod | null = ext.payment_method ?? null;
+  if (ext.vendor) {
+    const { data: rules } = await supabase.from('rules').select('*')
+      .order('priority', { ascending: true }).order('id', { ascending: true });
+    for (const r of (rules ?? []) as Rule[]) {
+      if (r.keyword && ext.vendor.includes(r.keyword)) {
+        if (r.account_category) category = r.account_category;
+        if (r.payment_method) payment = r.payment_method;
+        break;
+      }
+    }
+  }
+  return { category, payment };
+}
+
+// コスト試算用に api_usage を記録（best-effort：RLSで拒否されても致命的でない）。
+async function recordUsage(userId: string, model: string, usage: { input_tokens: number; output_tokens: number } | null): Promise<void> {
+  const { error } = await supabase.from('api_usage').insert({
+    user_id: userId,
+    occurred_at: nowIso(),
+    model,
+    input_tokens: usage?.input_tokens ?? 0,
+    output_tokens: usage?.output_tokens ?? 0,
+    estimated_yen: perReceiptYen(model),
+  });
+  void error; // 記録失敗は無視（集計表示が欠けるだけ）
+}
+
 // ── 取込（1枚分の処理）─────────────────────────────────────────
-async function processOne(item: ImportItem, userId: string): Promise<ImportResult> {
+async function processOne(item: ImportItem, userId: string, apiKey: string, model: string): Promise<ImportResult> {
   const stamp = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
   const originalKey = `${userId}/originals/${stamp}${extForMime(item.originalMime)}`;
   const thumbKey = `${userId}/thumbs/${stamp}.png`;
@@ -158,27 +212,39 @@ async function processOne(item: ImportItem, userId: string): Promise<ImportResul
   const receipt = rowToReceipt(ins.data);
   emitReceiptChanged(receipt);
 
-  // 3. /api/ocr に依頼（Vision→ルール→status→行update→usage記録 をサーバーで実施）
+  // 3. ブラウザから Anthropic へ直接 OCR（BYOK：鍵は端末内）。
+  //    取込時は手元の base64 をそのまま使うので Storage 往復は不要。
+  //    → ルール適用 → status判定 → receipts 行を update → api_usage 記録。
   try {
-    const res = await fetch('/api/ocr', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
-      body: JSON.stringify({ receiptId: receipt.id, thumbPath: thumbKey }),
-    });
-    if (!res.ok) {
-      const msg = await res.text();
-      throw new Error(`OCR失敗(${res.status}): ${msg.slice(0, 200)}`);
-    }
-    const updated = rowToReceipt(await res.json());
-    emitReceiptChanged(updated);
-    return { receiptId: receipt.id, fileName: item.name, ok: updated.status !== 'failed' };
+    const { ext, rawText, usage } = await runOcr(item.base64, item.mime, apiKey, model);
+    const { category, payment } = await applyRules(ext);
+    const { data: updated, error: updErr } = await supabase.from('receipts').update({
+      ocr_raw: rawText,
+      vendor: ext.vendor,
+      issued_on: ext.issued_on,
+      amount: ext.amount,
+      tax_amount: ext.tax_amount,
+      payment_method: payment,
+      account_category: category,
+      confidence: ext.confidence,
+      memo: ext.notes ?? receipt.memo,
+      error: null,
+      status: ocrStatus(ext),
+      updated_at: nowIso(),
+    }).eq('id', receipt.id).select().single();
+    if (updErr || !updated) throw updErr ?? new Error('DB更新に失敗しました');
+    await recordUsage(userId, model, usage);
+    const r = rowToReceipt(updated);
+    emitReceiptChanged(r);
+    return { receiptId: receipt.id, fileName: item.name, ok: r.status !== 'failed' };
   } catch (e) {
-    // 関数到達前にコケた場合は行を failed に落とす（孤児 processing を残さない）
+    // OCR/更新でコケた場合は行を failed に落とす（孤児 processing を残さない）。鍵はマスクして保存。
+    const msg = redactKey((e as Error).message ?? 'OCRに失敗しました');
     const upd = await supabase.from('receipts')
-      .update({ status: 'failed', error: (e as Error).message, updated_at: nowIso() })
+      .update({ status: 'failed', error: msg, updated_at: nowIso() })
       .eq('id', receipt.id).select().single();
     if (upd.data) emitReceiptChanged(rowToReceipt(upd.data));
-    return { receiptId: receipt.id, fileName: item.name, ok: false, error: (e as Error).message };
+    return { receiptId: receipt.id, fileName: item.name, ok: false, error: msg };
   }
 }
 
@@ -201,11 +267,14 @@ async function runPool<T, R>(items: T[], limit: number, worker: (it: T, idx: num
 export const api: AppApi = {
   // Receipts ----------------------------------------------------
   async importItems(items: ImportItem[]): Promise<ImportResult[]> {
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error('Anthropic APIキーが未設定です。「設定」でキーを入力してください。');
     const userId = await currentUserId();
+    const { model } = await this.getSettings();
     let done = 0;
     emitImportProgress({ done: 0, total: items.length });
     const results = await runPool(items, OCR_LIMIT_PER_IMPORT_CONCURRENCY, async (it) => {
-      const r = await processOne(it, userId);
+      const r = await processOne(it, userId, apiKey, model);
       emitImportProgress({ done: ++done, total: items.length });
       return r;
     });
@@ -261,28 +330,51 @@ export const api: AppApi = {
   },
 
   async retryOcr(id: number): Promise<Receipt> {
-    const cur = await supabase.from('receipts').select('thumbnail_path').eq('id', id).single();
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error('Anthropic APIキーが未設定です。「設定」でキーを入力してください。');
+    const userId = await currentUserId();
+    const cur = await supabase.from('receipts').select('thumbnail_path,memo').eq('id', id).single();
     if (cur.error || !cur.data?.thumbnail_path) throw new Error('読み取り用の画像が見つかりません。再インポートしてください。');
     const processing = await supabase.from('receipts')
       .update({ status: 'processing', error: null, updated_at: nowIso() })
       .eq('id', id).select().single();
     if (processing.data) emitReceiptChanged(rowToReceipt(processing.data));
-    const res = await fetch('/api/ocr', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await accessToken()}` },
-      body: JSON.stringify({ receiptId: id, thumbPath: cur.data.thumbnail_path }),
-    });
-    if (!res.ok) {
-      const msg = await res.text();
+
+    try {
+      // 再試行時は手元に base64 が無いので Storage のサムネを取得してブラウザ直叩き。
+      const dl = await supabase.storage.from(RECEIPTS_BUCKET).download(cur.data.thumbnail_path as string);
+      if (dl.error || !dl.data) throw new Error('画像の取得に失敗しました');
+      const bytes = new Uint8Array(await dl.data.arrayBuffer());
+      const { model } = await this.getSettings();
+      const { ext, rawText, usage } = await runOcr(bytesToBase64(bytes), detectImageMime(bytes), apiKey, model);
+      const { category, payment } = await applyRules(ext);
+      const { data: updated, error: updErr } = await supabase.from('receipts').update({
+        ocr_raw: rawText,
+        vendor: ext.vendor,
+        issued_on: ext.issued_on,
+        amount: ext.amount,
+        tax_amount: ext.tax_amount,
+        payment_method: payment,
+        account_category: category,
+        confidence: ext.confidence,
+        memo: ext.notes ?? (cur.data.memo as string | null),
+        error: null,
+        status: ocrStatus(ext),
+        updated_at: nowIso(),
+      }).eq('id', id).select().single();
+      if (updErr || !updated) throw updErr ?? new Error('DB更新に失敗しました');
+      await recordUsage(userId, model, usage);
+      const r = rowToReceipt(updated);
+      emitReceiptChanged(r);
+      return r;
+    } catch (e) {
+      const msg = redactKey((e as Error).message ?? 'OCRに失敗しました');
       const upd = await supabase.from('receipts')
-        .update({ status: 'failed', error: `OCR失敗(${res.status})`, updated_at: nowIso() })
+        .update({ status: 'failed', error: msg, updated_at: nowIso() })
         .eq('id', id).select().single();
       if (upd.data) emitReceiptChanged(rowToReceipt(upd.data));
-      throw new Error(`OCR失敗(${res.status}): ${msg.slice(0, 200)}`);
+      throw new Error(msg);
     }
-    const updated = rowToReceipt(await res.json());
-    emitReceiptChanged(updated);
-    return updated;
   },
 
   // Projects ----------------------------------------------------
@@ -347,13 +439,13 @@ export const api: AppApi = {
     const { data } = await supabase.from('settings').select('value').eq('key', SETTINGS_KEY).maybeSingle();
     let stored: Partial<typeof DEFAULT_SETTINGS> = {};
     if (data?.value) { try { stored = JSON.parse(data.value); } catch { /* ignore */ } }
-    // Web版は鍵をサーバーが持つため hasApiKey は常に true 扱い
-    return { ...DEFAULT_SETTINGS, ...stored, hasApiKey: true };
+    // BYOK：鍵は端末(localStorage)に保持。有無を hasApiKey に反映する。
+    return { ...DEFAULT_SETTINGS, ...stored, hasApiKey: hasApiKeyLocal() };
   },
 
-  async setApiKey(_key: string | null): Promise<void> {
-    // Web版では APIキーはサーバー(Vercel環境変数)が保持。クライアントからは設定しない。
-    void _key;
+  async setApiKey(key: string | null): Promise<void> {
+    // BYOK：APIキーはこの端末(localStorage)にのみ保存。サーバーには送らない。
+    setApiKeyLocal(key);
   },
 
   async updateSettings(patch: Partial<Omit<AppSettings, 'apiKey' | 'hasApiKey'>>): Promise<void> {
