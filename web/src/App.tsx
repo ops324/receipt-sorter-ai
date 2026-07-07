@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useApp } from './stores/app-store';
-import { supabase } from '@/lib/supabase';
 import { Inbox } from './pages/Inbox';
 import { ReceiptList } from './pages/ReceiptList';
 import { Summary } from './pages/Summary';
@@ -21,7 +20,6 @@ import {
   ArrowUpFromLine,
   KeyRound,
   Sparkles,
-  LogOut,
 } from 'lucide-react';
 
 type Page = 'inbox' | 'list' | 'summary' | 'projects' | 'rules' | 'export' | 'settings';
@@ -88,22 +86,12 @@ export default function App() {
           ))}
         </div>
 
-        {/* モデル表示 + ログアウト */}
-        <div className="px-4 py-3.5 border-t border-emerald-900/30 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-brand-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]" />
-            <span className="text-[11px] text-emerald-100/35 truncate font-medium tracking-wide">
-              {settings ? settings.model.replace('claude-', '').replace(/-\d{8}$/, '') : '…'}
-            </span>
-          </div>
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="text-emerald-100/40 hover:text-emerald-100/80 transition-colors shrink-0"
-            aria-label="ログアウト"
-            title="ログアウト"
-          >
-            <LogOut size={14} />
-          </button>
+        {/* モデル表示 */}
+        <div className="px-4 py-3.5 border-t border-emerald-900/30 flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-brand-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]" />
+          <span className="text-[11px] text-emerald-100/35 truncate font-medium tracking-wide">
+            {settings ? settings.model.replace('claude-', '').replace(/-\d{8}$/, '') : '…'}
+          </span>
         </div>
       </aside>
 
