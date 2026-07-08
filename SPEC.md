@@ -1,7 +1,7 @@
 # アリサ — アプリケーション仕様書
 
-**バージョン**: 1.5  
-**最終更新**: 2026-06-15  
+**バージョン**: 1.6  
+**最終更新**: 2026-07-08  
 **対象プラットフォーム**: macOS (Apple Silicon / Intel) ／ Web（iPad Safari・PCブラウザ。§11 Web版）
 
 ---
@@ -487,27 +487,33 @@ onImportProgress(cb: (p: ImportProgress) => void): () => void;
 
 ## 11. Web版（iPad対応・`web/`）
 
-Mac/Win版とは独立した別ビルド。iPad Safari / PCブラウザで使う。詳細は `web/README.md`。
+Mac/Win版とは独立した別ビルド。iPad Safari / PCブラウザで使う。詳細は `web/README.md` / `web/DEPLOY.md`。
 
-**スタック**: Vite + React + TS + Tailwind / Vercel(サーバーレス関数 `api/ocr.ts`) / Supabase(Postgres + Storage + Auth)。Vercel Root Directory = `web/`。
+**現行アーキテクチャ（都度処理・BYOK・端末内完結）**: サーバー無し・データベース無し・ログイン無しの**純粋な静的SPA**。OCRはクライアント本人のAnthropicキーで**ブラウザから直接**呼ぶ（BYOK）。データはその端末の**IndexedDB**に保持し、オーナー側インフラ・課金はゼロ。（※2026-06の旧構成＝Supabase＋サーバー関数＋招待制「Model 1」は廃止。移行経緯は下記PR履歴を参照。）
 
-**設計**:
-- 既存UI資産（`src/components/ui`・`pages`・`stores`・`lib/file-to-base64`）を流用。`@shared`→ルート`shared/`をエイリアス参照（コピーせず型共有）。
-- Electron IPC `window.api`(25メソッド) を `web/src/lib/api.ts`(Supabase実装) に差し替え、`main.tsx` で `window.api = api` 代入。CRUDはRLS直叩き、OCRのみ関数。
-- 取込: クライアントがStorageへ原本/サムネをアップ + `processing`行をinsert → `/api/ocr` が Vision→ルール→status判定→行update→`api_usage`記録（1関数1枚, 並列度3）。
+**スタック**: Vite + React + TS + Tailwind。静的ホスティング（Vercel等・**環境変数不要**）。`@shared`→ルート`shared/`をエイリアス参照（コピーせず型共有）。Mac版のUI資産（`components/ui`・`pages`・`stores`・`lib/file-to-base64`）を流用。
 
-**マルチユーザー/セキュリティ**:
-- 全テーブルに `user_id` + RLS(`auth.uid()`)。`projects` は `UNIQUE(user_id, name)`。スキーマは `web/supabase/schema.sql`。
-- **BYOK廃止**: Claude鍵はVercel環境変数。**招待制**（公開サインアップ無効）+ `/api/ocr` で `ALLOWED_USER_IDS` 照合 + 月次OCR上限。
+**データ層** (`web/src/lib/local-db.ts`): IndexedDB(DB名`arisa`)。ストア `receipts / projects / rules / images / usage / meta(設定・採番)`。数値IDは**単一readwriteトランザクションで採番**し並列取込(並列度3)でも重複しない。Electron IPC `window.api`(AppApi) をこのローカル実装(`web/src/lib/api.ts`)に差し替え、`main.tsx` で `window.api = api` 代入（`AuthGate`撤去＝ログイン無しで `App` 直描画）。
+- 都度処理＝履歴を残さない運用だが、端末内保存によりリフレッシュ/誤クローズでの消失を防ぐ。iOS Safari は script-writable storage を約7日で消去(ITP)するため、**「ホーム画面に追加」(PWA化)で永続化**するのが前提。データは端末間で同期しない。
 
-**マイルストーン**: M0認証/足場・M1 1枚OCR・M2 CRUD・M3複数枚/進捗/コスト上限 実装済（M3の孤児ファイル掃除も完了＝取込でアップ後にDB行作成失敗／部分アップ時にアップ済みStorageファイルを掃除。破壊的スイープは原本誤削除リスクのため不採用）。**集計ページ実装済**（`src/pages/Summary.tsx`。ナビ「集計」）。**M4ファイル出力(CSV/Excel/PDF/ZIP)は未実装**（`exportData`は準備中エラー）。
+**OCR（ブラウザ直叩き）** (`web/src/lib/ocr.ts`): `@anthropic-ai/sdk` の `dangerouslyAllowBrowser` で Claude Vision を直接呼ぶ（本人の鍵を本人の端末から使う用途）。プロンプト/スキーマ(zod)/JSONパースは旧`api/ocr.ts`から移植。取込は手元のbase64をそのまま使い(Storage往復なし)、**ルール適用・status判定・鍵マスク・`api_usage`記録はクライアント側**(`api.ts`)。モデルは設定既定の `claude-haiku-4-5-20251001` 固定（1枚 約¥0.5）。**課金はOCRのみ、仕分け・計算は無料。**
 
-**集計（Summary）**: 期間（デフォルト当月・ローカル日付でTZずれ回避）・案件・「確定済みのみ」で絞り込み、勘定科目別／支払方法別に件数・金額合計・税額を集計表示（KPI＋構成比バー付きテーブル）。`failed`/`processing`は金額不定のため対象外、日付未設定は期間集計から除外し件数のみ注記。**計算はすべてクライアント側（ブラウザ内）で完結し、Claude API等の従量課金は発生しない**（既に読込済みの`receipts`ストアを集計するのみ）。クライアントの主要ニーズ「計算の自動化にコストをかけたくない」に構造的に合致。
+**鍵(BYOK)** (`web/src/lib/local-key.ts`): APIキーは**この端末(localStorage)にのみ保存**、サーバーへ送らない。Settingsにキー入力カード（保存/削除/表示切替・`sk-ant-`形式ヒント・端末内保存の説明・**Spend Limit案内**・コンソールリンク）。`getSettings().hasApiKey` は鍵の有無を反映。キー未設定での取込/再OCRは明確なエラー→トースト通知。
 
-**提供形態（Model 1）**: オーナーが1組のSupabase＋Anthropicキーを保持し、招待制でクライアントに相乗り提供（OCR代はオーナー負担）。クライアントはログインのみでSupabase/キーに触れない。
-- **Settingsのキー入力UI撤去・完了**: Web版は鍵をサーバー保持のためAPIキーCardを撤去（既定値Cardのみ残す）。Inbox/ReceiptListの`hasApiKey`死に分岐（未設定バナー・トースト・再試行無効化）も除去。`hasApiKey`は常にtrue。
-- **OCRモデルはサーバー固定**: `/api/ocr` が環境変数 `OCR_MODEL`（許可リスト照合・未設定なら最安`claude-haiku-4-5-20251001`）で一元決定。クライアント設定からは選ばせない（オーナーのコスト管理）。コスト試算の「1枚あたり」表示用に`api.ts`の既定modelもhaikuへ合わせ済。
+**集計（Summary）** (`web/src/pages/Summary.tsx`・ナビ「集計」): 期間（デフォルト当月・ローカル日付でTZずれ回避）・案件・「確定済みのみ」で絞り込み、勘定科目別／支払方法別に件数・金額合計・税額を集計表示（KPI＋構成比バー付きテーブル）。`failed`/`processing`は金額不定のため対象外、日付未設定は期間集計から除外し件数のみ注記。**計算はすべてブラウザ内で完結し従量課金は発生しない**。クライアントの主要ニーズ「計算の自動化にコストをかけたくない」に構造的に合致。
 
-**Mac/Win版との関係**: データ非同期（別DB）。`electron/`・既存`src/`・`forge.config.ts` は不変。
+**提供形態（BYOK）**: クライアント本人のAnthropicキーを本人のiPadで使用（オーナーが初期設定を代行可）。オーナーは静的サイトを配るだけ＝インフラ・OCR課金・保守ゼロ。安全策として **Anthropic Spend Limit＋端末ロック** を前提とする。
 
-**デプロイ手順**: `web/DEPLOY.md` にSupabase作成→schema適用→招待制設定→Vercel環境変数→iPad実機チェックリストを集約。本番ビルド（`npm run build`）は通過確認済（`pdf.worker` は自己ホストでバンドル＝CDN非依存）。iPad実機でのpdfjsプレビュー動作のみ未検証（チェックリストの最重要確認項目）。
+**実装経緯（PRベース・GitHub `ops324/receipt-sorter-ai`）**:
+- **#1 (merged)**: 集計ページ ＋ BYOK段階1（OCRをサーバー関数→ブラウザ直叩き、鍵を端末保存、Settingsキーカード復活）。
+- **#2 (merged)**: Supabase全撤去・都度処理化（`local-db.ts`新設・`api.ts`全面ローカル実装・`AuthGate`撤去＝ログイン不要）。ローカルプレビューで実起動確認。バンドル 1002KB→784KB（Supabaseクライアント除去）。
+- **#3 (merged)**: 静的デプロイ準備（デッド関数`api/ocr.ts`削除→純粋静的化・`DEPLOY.md`全面刷新）。
+
+**デプロイ**: 純粋静的。Vercel(Root Directory=`web` / Framework=Vite / **環境変数不要**)へImport→Deployで公開、以降 `main` push で自動再デプロイ。手順・iPad実機チェックリストは `web/DEPLOY.md`。`tsc`/`npm run build` 通過、ローカルプレビュー(`web` / port5174)で起動確認済。
+
+**未実装・残**:
+- **ファイル書き出し（CSV/Excel/PDF/ZIP）未実装**（`exportData`は準備中エラー）。都度処理では書き出しが実質の記録になるため優先度高め。
+- **段階4クリーンアップ**: 未参照の死蔵 `Login.tsx` / `lib/supabase.ts` / `web/supabase/` / `@supabase/supabase-js`依存 の撤去。
+- iPad実機での `pdfjs` プレビュー動作は未検証（`pdf.worker` は自己ホストでバンドル＝CDN非依存）。
+
+**Mac/Win版との関係**: 別ビルド・データ非同期。`electron/`・既存`src/`・`forge.config.ts` は不変。
