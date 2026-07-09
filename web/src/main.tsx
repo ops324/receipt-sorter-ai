@@ -13,7 +13,7 @@ const container = document.getElementById('root');
 if (!container) throw new Error('#root not found');
 createRoot(container).render(
   <React.StrictMode>
-    {/* 合言葉ゲート（任意）。未設定なら素通り、設定時は解錠までAppを描画しない。 */}
+    {/* パスワードゲート（任意）。未設定なら素通り、設定時は解錠までAppを描画しない。 */}
     <AccessGate>
       <App />
     </AccessGate>

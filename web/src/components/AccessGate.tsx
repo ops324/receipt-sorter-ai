@@ -6,8 +6,8 @@ import { isGateEnabled, isUnlocked, markUnlocked, verifyCode, canVerify } from '
 import logo from '../assets/logo.png';
 
 /**
- * 合言葉ゲート。ゲートが有効（合言葉ハッシュが設定済み）で、かつこの端末が未解錠の
- * ときだけ合言葉入力画面を出し、<App/> 自体をアンマウント状態に保つ。ゲートが
+ * パスワードゲート。ゲートが有効（パスワードハッシュが設定済み）で、かつこの端末が未解錠の
+ * ときだけパスワード入力画面を出し、<App/> 自体をアンマウント状態に保つ。ゲートが
  * 無効（未設定）なら素通りする。純クライアント側・サーバー非依存。
  *
  * ※ 部外者の締め出しは casual deterrent。静的公開アプリのため技術者は回避し得る。
@@ -41,7 +41,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
       markUnlocked();
       onUnlock();
     } else {
-      setError('合言葉が正しくありません');
+      setError('パスワードが正しくありません');
       setCode('');
       inputRef.current?.focus();
     }
@@ -54,24 +54,19 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
         <div className="flex flex-col items-center mb-8">
           <img
             src={logo}
-            alt="アリサ"
+            alt="領収書仕分けAI"
             className="w-14 h-14 rounded-[16px] object-cover ring-1 ring-white/10 shadow-lg mb-4"
           />
-          <h1
-            className="text-xl font-bold tracking-wide text-emerald-50"
-            style={{ fontFamily: '"Hiragino Mincho ProN", "Yu Mincho", serif' }}
-          >
-            アリサ
-          </h1>
+          <h1 className="text-lg font-bold tracking-wide text-emerald-50">領収書仕分けAI</h1>
           <p className="mt-1 flex items-center gap-1.5 text-[13px] text-emerald-100/45">
             <Lock size={12} className="text-brand-400" />
-            合言葉を入力してください
+            パスワードを入力してください
           </p>
         </div>
 
-        {/* 合言葉入力カード */}
+        {/* パスワード入力カード */}
         <form onSubmit={submit} className="bg-[#122b1e] border border-emerald-900/50 rounded-2xl shadow-2xl p-6">
-          <label className="text-xs font-medium text-emerald-100/60 mb-1.5 block">合言葉</label>
+          <label className="text-xs font-medium text-emerald-100/60 mb-1.5 block">パスワード</label>
           <div className="relative">
             <Input
               ref={inputRef}
@@ -91,7 +86,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
               type="button"
               onClick={() => setShow((v) => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-100/40 hover:text-emerald-100/80 transition-colors"
-              aria-label={show ? '合言葉を隠す' : '合言葉を表示'}
+              aria-label={show ? 'パスワードを隠す' : 'パスワードを表示'}
             >
               {show ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
@@ -100,7 +95,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
           {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
           {!usable && (
             <p className="mt-2 text-xs text-amber-400">
-              安全な接続（https）でのみ合言葉を確認できます。
+              安全な接続（https）でのみパスワードを確認できます。
             </p>
           )}
 
@@ -115,7 +110,7 @@ function Gate({ onUnlock }: { onUnlock: () => void }) {
         </form>
 
         <p className="mt-5 px-2 text-center text-[10px] leading-relaxed text-emerald-100/25">
-          合言葉が分からない場合は提供者にお問い合わせください。
+          パスワードが分からない場合は提供者にお問い合わせください。
         </p>
       </div>
     </div>
