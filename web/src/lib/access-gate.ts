@@ -19,8 +19,8 @@
 // ▼ ここに合言葉のハッシュを設定するとゲートが有効になる（空ならゲート無効=素通り）。
 //   値は `node web/scripts/gen-access-code.mjs '<合言葉>'` で生成して貼り付ける。
 //   （代わりに VITE_ACCESS_SALT / VITE_ACCESS_HASH / VITE_ACCESS_ITER でも上書き可能）
-const ACCESS_SALT_B64 = '';
-const ACCESS_HASH_B64 = '';
+const ACCESS_SALT_B64 = '1bg79j5apnRTYwhCztHODQ==';
+const ACCESS_HASH_B64 = '2lCwG4aHBKtyNKSMPU3/jG7v95hmkMdtRC5BL28LXtU=';
 const ACCESS_ITERATIONS = 210_000;
 
 // 環境変数があればそちらを優先（Vercel等でハッシュを commit したくない場合の逃げ道）。
