@@ -511,7 +511,7 @@ Mac/Win版とは独立した別ビルド。iPad Safari / PCブラウザで使う
 - **#1 (merged)**: 集計ページ ＋ BYOK段階1（OCRをサーバー関数→ブラウザ直叩き、鍵を端末保存、Settingsキーカード復活）。
 - **#2 (merged)**: Supabase全撤去・都度処理化（`local-db.ts`新設・`api.ts`全面ローカル実装・`AuthGate`撤去＝ログイン不要）。ローカルプレビューで実起動確認。バンドル 1002KB→784KB（Supabaseクライアント除去）。
 - **#3 (merged)**: 静的デプロイ準備（デッド関数`api/ocr.ts`削除→純粋静的化・`DEPLOY.md`全面刷新）。
-- **#4 (本PR)**: パスワードゲート追加（`access-gate.ts`/`AccessGate.tsx`・ビルド埋め込みハッシュ・localStorage解錠・部外者締め出し）。ゲート無効時は素通り。`tsc`/`build` 通過、プレビュー(port5174)で解錠/誤コード/リロード素通り/純静的出力を確認。
+- **#4 (本PR)**: パスワードゲート追加（`access-gate.ts`/`AccessGate.tsx`・ビルド埋め込みハッシュ・localStorage解錠・部外者締め出し）。ゲート無効時は素通り。あわせて**顧客向け表示名を「領収書仕分けAI」に統一**（ゲート見出し・タブ/PWA名 `index.html` `<title>`。サイドバー表示と一致。内部プロジェクト名／コードネームは引き続き「アリサ」）。`tsc`/`build` 通過、プレビュー(port5174)で解錠/誤コード/リロード素通り/純静的出力を確認。
 
 **デプロイ**: 純粋静的。Vercel(Root Directory=`web` / Framework=Vite / **環境変数不要**)へImport→Deployで公開、以降 `main` push で自動再デプロイ。手順・iPad実機チェックリストは `web/DEPLOY.md`。`tsc`/`npm run build` 通過、ローカルプレビュー(`web` / port5174)で起動確認済。
 
